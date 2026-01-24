@@ -1,0 +1,106 @@
+services:
+  # Zookeper is kafka coordinator
+  # Kafka doesn't work without him, it stores metadata about topics, brokers
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0 # Image from Docker Hub
+    hostname: zookeeper # Hostname inside Docker network
+    container_name: zookeeper
+    ports:
+      - "2181:2181" # Forward port outside (for docker ps)
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181 # PORT for client (Kafka connects here)
+      ZOOKEEPER_TICK_TIME: 2000
+      ZOOKEEPER_SERVER_ID: 1
+
+    healthcheck:
+      test: [ "CMD", "nc", "-z", "localhost", "2181" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    hostname: kafka
+    container_name: kafka
+    depends_on: # This server starts after zookeeper
+      zookeeper:
+        condition: service_healthy
+    ports:
+      - "9092:9092"
+      - "9101:9101"
+    environment:
+      # Borker's ID in cluster (if there are many brokers, each has its own IDS)
+      KAFKA_BROKER_ID: 1
+
+      # Zookeeper address (kafka refers to the hostname
+      KAFKA_ZOOKEEPER_CONNECT: 'zookeeper:2181'
+
+      # LISTENER is a "listener" on specific port
+      # PLAINTEXT - without encryption (for production use SSL)
+      # PLAINTEXT_HOST for host-machine connection (your macbook)
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+
+      # Kafka listen on two interfaces:
+      # - PLAINTEXT://kafka:29092 - inside Docker network (for other containers)
+      # - PLAINTEXT_HOST://0.0.0.0:9092 - для твоей машины (localhost:9092)
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:29092,PLAINTEXT_HOST://0.0.0.0:9092
+
+      #  This is a listener for communication between brokers (if there are several)
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+
+      # Offset topic - system topic, where kafka stores positions of consumers
+      # Replication factor = 1 (one copy, because we have one broker)
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+
+      # Transaction state - for transactional producers
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+
+      # Automatically create topics when you first send a message
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+
+      KAFKA_NUM_PARTITIONS: 3
+      KAFKA_CONFLUENT_SUPPORT_METRICS_ENABLE: 'false'
+
+      # JMX port for monitoring
+      KAFKA_JMX_PORT: 9101
+      KAFKA_JMX_HOSTNAME: localhost
+
+    healthcheck:
+      test: [ "CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092" ]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+
+  postgres:
+    image: postgres:16-alpine # Alpine - Minimal image (weights less)
+    container_name: postgres
+    ports:
+      - "5432:5432" # Standard postgres port
+    environment:
+      # Data base name, which automatically create when its first start
+      POSTGRES_DB: orders_db
+      # User (default = postgres)
+      POSTGRES_USER: postgres
+      # Data base password
+      POSTGRES_PASSWORD: postgres
+
+    volumes:
+      # Mount the volume for data persistence
+      # If the container is deleted, the data will stay in host-machine
+      - postgres_data:/var/lib/postgresql/data
+
+      # Mount the directory with migrations inside container
+      # We'll execute them later via a script
+      - ./migrations:/docker-entrypoint-initdb.d
+
+    healthcheck: # Check database health
+      test: ["CMD-SHELL", "pg_isready -U postgres"] # Check command
+      interval: 10s # Check every 10 seconds
+      timeout: 5s # Answer timeout
+      retries: 5 # Count of attempts
+
+volumes:
+  postgres_data: # PostgresSQL data will be stored here
