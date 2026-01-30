@@ -12,7 +12,7 @@ type Order struct {
 	TotalAmount float64 `json:"total_amount" db:"total_amount"`
 	Status      string  `json:"status" db:"status"`
 
-	CratedAt  time.Time `json:"created_at" db:"created_at"`
+	CreatedAt time.Time `json:"created_at" db:"created_at"`
 	UpdatedAt time.Time `json:"updated_at" db:"updated_at"`
 }
 
